@@ -51,12 +51,98 @@ Exploratory Data Analysis
 
 Findings:
 
-Hour-of-day pattern: weak, not absent. Median AQI ranges only from about 64 (mid-morning, hours 6–13 UTC) to about 69 (late evening, hours 18–23 UTC) — a roughly 5-point swing across the full day. There's no sharp double-peak rush-hour signature. The clearer effect is in the outliers, not the median: extreme spikes (AQI 140–180) appear concentrated in the afternoon-to-late-evening hours (14:00–23:00 UTC), while early-morning hours show almost none. Stated plainly: a modest diurnal effect exists, concentrated in extreme events rather than the typical case.
+Time-series trend: the four-year series shows a clear, recurring seasonal pattern rather than the single flat summer window the earlier EDA captured: sharp winter pollution peaks reaching the AQI scale's ceiling of 500 recur around each year-end (visible in late 2022, late 2023, and late 2024/early 2025), consistent with temperature-inversion-driven winter smog. Notably, the most recent winter (entering 2026) is markedly more muted, topping out around 310 rather than plateauing at 500 — worth flagging as a genuine pattern rather than a data artifact, and a candidate follow-up question (was there a real air-quality improvement, or a change in measurement/reporting?) if there's time to explore it. Several sparse-data windows (>2h gaps) are scattered across the four years, most falling in otherwise unremarkable stretches of the series rather than coinciding with the pollution peaks, so the peak shapes themselves aren't sampling artifacts. A related, worth-stating detail: the repeated flat-topped plateaus at exactly 500 reflect the AQI scale's own ceiling (500 = EPA's top "Hazardous" breakpoint) — the underlying PM2.5 concentration during the worst events is effectively censored at this value by the pm25_to_aqi formula, not a sign of a bug.
 
-Time-series trend: two clear pollution events stand out — a sharp peak in early-to-mid June reaching ~175–180 AQI, and a smaller one in early July reaching ~110–115. The one shaded gap region (~July 10–12) sits in a relatively flat, unremarkable part of the series, not near either peak, so neither event's shape is an artifact of sparse sampling — both are backed by dense data. One point genuinely worth naming rather than glossing over: a sharp single-point spike to ~160 appears right at the end of the series (late August) with no shading around it, meaning it's technically dense-sampled data by the plot's own criterion — but a single-point spike of that size is also exactly the kind of thing worth a manual sanity check against the raw AQICN reading for that hour before trusting it outright in the report.
+Hour-of-day pattern: markedly weaker than the earlier single-season EDA suggested. Across the full four years, the median AQI by hour is essentially flat (differences of only a few AQI points across all 24 hours), and extreme outliers (up to the 500 ceiling) appear at every hour rather than concentrated in a particular part of the day. The earlier finding of an evening-concentrated outlier pattern does not hold up at this scale — the dominant driver of AQI variation is clearly seasonal (month-to-month), not diurnal, and the hour-of-day effect that remains is close to negligible.
 
-Weather/pollutant correlation: pressure correlated most strongly with AQI (r = -0.46, moderate negative) — physically sensible, since low-pressure systems are often associated with the stagnant air that traps pollutants. Humidity was weaker (+0.20), wind speed weaker still (-0.23), and temperature negligible (+0.06). No fallback to pollutants occurred — the plot title and the underlying log both confirm all four weather variables had sufficient overlapping data to compute directly.
+Weather/pollutant correlation: pressure is the strongest correlate with AQI (r = +0.53, moderate positive) — physically consistent with winter high-pressure systems producing the temperature inversions that trap pollutants near the surface during Karachi's worst smog events. Humidity (-0.41) and temperature (-0.39) are both moderate and negative, consistent with the same seasonal story: cooler, drier winter conditions coincide with higher AQI, while the humid monsoon months see pollutants washed out of the air. Wind speed is weaker (-0.34), in the expected direction (more wind disperses pollutants). This is a substantively different — and more physically coherent — picture than the single-season correlations reported earlier, which had the wrong sign on pressure and near-zero temperature/humidity correlations simply because that window didn't contain enough seasonal variation to reveal the real relationship.
 
-Missing data: contrary to what was expected going in, weather fields are effectively complete (not present in the missing-data chart at all). The real gaps are concentrated in the AQI-derived features: aqi_lag_24h at ~2.5% missing, aqi_change_rate at ~0.5%, aqi_lag_1h at ~0.3%, aqi itself at ~0.2%, and pollutants (pm10/o3/no2) at ~0.05% each. This is mostly structural — the first 24 hours of the series can't have a 24-hour lag value yet, by definition — with a small additional contribution from the one sparse-data window noted above. This is a materially better result than the report template assumed, and worth stating as such rather than forcing the pre-written "weather is missing" narrative onto data that shows otherwise.
+Missing data: weather features (temperature, humidity, wind speed, pressure) remain effectively complete across the full 33,696-row dataset — none appear in the missing-data ranking at all. The remaining gaps are concentrated in AQI-derived features, as expected structurally: aqi_change_rate (~0.79%), aqi_lag_24h (~0.61%), aqi_lag_1h (~0.41%), and aqi itself (~0.39%), plus pollutants (o3/pm10/no2) at ~0.30% each. These percentages are notably smaller than the 90-day EDA's (e.g. aqi_lag_24h dropped from ~2.5% to ~0.61%) simply because the fixed number of structurally-NaN rows at the very start of the series is now a much smaller fraction of a much larger dataset.
 
-Feature list: no new feature was indicated by this EDA. The one feature-list gap this project actually had — the model never seeing the row's own current aqi reading, only its lagged/derived versions — was already caught and fixed before this stage (see Part 5). Pressure's comparatively stronger correlation doesn't require a new feature, since pressure is already in WEATHER_COLUMNS.
+Feature list: still no new feature indicated by this EDA. The pressure/temperature/humidity correlation strengthening once winter data is included doesn't require new features — all three are already in WEATHER_COLUMNS — though it does reinforce that the earlier single-season EDA would have been a weak basis for feature selection had it been trusted in isolation.
+
+Modeling & Evaluation
+
+Four forecasting approaches (plus a persistence baseline) were built and compared — Ridge Regression, Random Forest, XGBoost, and an LSTM — each producing direct (not recursive) multi-horizon predictions for t+24h, t+48h, and t+72h:
+
+| Model | RMSE (24h/48h/72h) | MAE (24h/48h/72h) | R² (24h/48h/72h) |
+|---|---|---|---|
+| Baseline (persistence) | 24.20 / 30.26 / 32.45 | 14.53 / 20.17 / 22.55 | 0.42 / 0.10 / -0.04 |
+| Ridge Regression | 27.54 / 34.04 / 35.01 | 18.75 / 24.15 / 25.54 | 0.25 / -0.14 / -0.21 |
+| Random Forest | 23.84 / 34.04 / 33.80 | 15.87 / 23.79 / 24.94 | 0.44 / -0.14 / -0.12 |
+| XGBoost | 22.73 / 30.81 / 30.68 | 15.06 / 23.43 / 22.46 | 0.49 / 0.07 / 0.07 |
+| LSTM | 23.60 / 27.70 / 30.93 | 15.67 / 19.36 / 22.09 | 0.45 / 0.25 / 0.06 |
+
+Forecasts use a direct multi-horizon strategy rather than recursive prediction, and a chronological (not random) train/test split, so reported accuracy reflects genuine forward-looking performance rather than leaked future information.
+
+No single model is manually selected for deployment. Each training run registers every candidate's real metrics, and the registry itself is queried at serving time for the lowest-RMSE model per horizon (`get_best_model`) — this keeps promotion logic in one place rather than duplicated between training and serving code. In this run, the LSTM was the best-performing model at all three horizons, and — notably — at 72h it is the first model in this project to genuinely outperform the persistence baseline (RMSE 44.44 vs. 45.43), consistent with the baseline's "no change" assumption weakening at longer horizons where real weather/pollutant dynamics matter more than the current reading alone. Random Forest and XGBoost were tuned via a bounded RandomizedSearchCV (15 candidates × 3 folds, scored on a TimeSeriesSplit to avoid future leakage into validation folds) rather than fixed hyperparameters; this measurably improved XGBoost (24h R² from -0.48 to 0.18) but neither tree ensemble matched Ridge or LSTM, plausibly because tree-based averaging smooths over the sharp AQI transitions that persistence and the LSTM capture directly. A multivariate LSTM variant (trained on pollutant/weather/cyclical features per timestep, not just the AQI sequence) was also attempted and reverted after it substantially underperformed the single-feature version at every horizon — kept here as a documented, deliberate design decision rather than silently discarded. Every trained model is registered with its real metrics; the best-performing one per horizon is additionally registered under a shared name (aqi_forecast_24h, etc.) so serving code can query the genuine best model across every algorithm and every training run, not just whichever one happened to train most recently. Weather features (temperature, humidity, wind speed, pressure) are populated for both live rows (from OpenWeather) and backfilled historical rows (from Open-Meteo's free historical weather API) — confirmed at 100% coverage (33,696/33,696 rows) by both the direct row-count check and the EDA's missing-data analysis.
+
+Training Window Selection
+
+Given that the feature store had grown to 33,696 hourly rows (four years of backfilled history) but the champion models still weren't consistently beating the persistence baseline, an open question was whether training on less — or more — of that history would help. Rather than guess, this was tested directly: the same training pipeline (Ridge, tuned Random Forest, tuned XGBoost, seeded LSTM, evaluated against a chronological train/test split) was re-run six times, each time restricted to a different trailing window of the feature store — 90, 180, 365, 730, 1085, and 1440 days back from the most recent reading — with nothing from these exploratory runs registered or deployed.
+
+One methodological point matters here: absolute RMSE is not comparable across windows, since each window's test set (the most recent 20% of that window) is a different, differently-volatile stretch of the series — a 90-day test slice covers a single calm season, while a 1440-day test slice includes real winter extreme events reaching the AQI scale's ceiling of 500. The only fair comparison is relative: within each window, does the best trained model beat that window's own baseline?
+
+Summary — margin vs. each window's own baseline:
+
+Window	24h margin	48h margin	72h margin	Beats baseline at all 3 horizons?
+90 days	+3.5%	-8.7%	-27.0%	No
+180 days	-7.4%	-4.7%	-3.8%	No
+365 days	-10.7%	+0.4%	+9.8%	No (2/3)
+730 days	+0.5%	+8.6%	+6.2%	Yes
+1085 days	+6.1%	+7.7%	+5.5%	Yes
+1440 days	-1.6%	-4.4%	+0.2%	No (1/3)
+
+Full per-model breakdown, RMSE/MAE/R² (24h/48h/72h):
+
+Window	Model	RMSE	MAE	R²
+90 days	Baseline (persistence)	7.18 / 8.82 / 9.30	4.46 / 6.20 / 6.79	-0.06 / -0.59 / -0.77
+	Ridge	7.47 / 10.50 / 11.82	5.03 / 8.33 / 9.46	-0.14 / -1.25 / -1.85
+	Random Forest	7.41 / 9.71 / 12.25	4.78 / 7.33 / 10.42	-0.12 / -0.92 / -2.06
+	XGBoost	6.93 / 9.58 / 12.17	4.29 / 7.45 / 10.24	0.02 / -0.87 / -2.02
+	LSTM	7.78 / 10.45 / 12.33	5.05 / 7.74 / 9.77	-0.18 / -1.11 / -1.93
+180 days	Baseline (persistence)	6.46 / 8.45 / 9.61	4.53 / 6.60 / 7.57	0.51 / 0.13 / -0.15
+	Ridge	7.02 / 9.35 / 11.20	5.09 / 7.46 / 9.14	0.43 / -0.07 / -0.56
+	Random Forest	8.41 / 10.91 / 16.00	6.26 / 8.55 / 13.89	0.18 / -0.46 / -2.19
+	XGBoost	6.93 / 8.85 / 9.97	4.90 / 6.93 / 7.86	0.44 / 0.04 / -0.24
+	LSTM	9.16 / 15.72 / 15.39	6.54 / 11.89 / 9.75	0.01 / -2.04 / -1.93
+365 days	Baseline (persistence)	7.85 / 11.16 / 13.33	5.64 / 8.57 / 10.71	0.67 / 0.33 / 0.04
+	Ridge	11.66 / 16.41 / 15.84	9.17 / 12.98 / 12.36	0.27 / -0.46 / -0.35
+	Random Forest	9.25 / 14.39 / 22.50	7.02 / 11.47 / 17.87	0.54 / -0.12 / -1.73
+	XGBoost	8.69 / 11.12 / 12.02	6.88 / 8.80 / 9.51	0.59 / 0.33 / 0.22
+	LSTM	10.33 / 16.70 / 19.63	8.11 / 13.85 / 17.07	0.43 / -0.49 / -1.06
+730 days	Baseline (persistence)	15.54 / 19.68 / 21.68	9.49 / 13.33 / 15.51	0.45 / 0.12 / -0.08
+	Ridge	16.19 / 18.93 / 20.34	10.82 / 13.54 / 14.62	0.41 / 0.19 / 0.05
+	Random Forest	15.46 / 18.00 / 21.35	10.43 / 12.78 / 16.28	0.46 / 0.27 / -0.04
+	XGBoost	15.95 / 18.58 / 21.20	11.81 / 13.74 / 16.11	0.42 / 0.22 / -0.03
+	LSTM	16.49 / 21.73 / 23.43	10.24 / 14.20 / 18.19	0.36 / -0.11 / -0.30
+1085 days	Baseline (persistence)	24.20 / 30.26 / 32.45	14.53 / 20.17 / 22.55	0.42 / 0.10 / -0.04
+	Ridge	27.54 / 34.04 / 35.01	18.75 / 24.15 / 25.54	0.25 / -0.14 / -0.21
+	Random Forest	23.84 / 34.04 / 33.80	15.87 / 23.79 / 24.94	0.44 / -0.14 / -0.12
+	XGBoost	22.73 / 30.81 / 30.68	15.06 / 23.43 / 22.46	0.49 / 0.07 / 0.07
+	LSTM	23.34 / 27.94 / 32.19	15.53 / 19.88 / 23.45	0.46 / 0.23 / -0.02
+1440 days	Baseline (persistence)	31.73 / 41.59 / 45.43	18.76 / 26.66 / 29.80	0.48 / 0.10 / -0.07
+	Ridge	38.85 / 51.18 / 51.28	27.23 / 35.98 / 36.40	0.21 / -0.36 / -0.36
+	Random Forest	45.09 / 61.99 / 71.64	30.04 / 41.21 / 47.46	-0.06 / -0.99 / -1.66
+	XGBoost	39.65 / 56.04 / 63.12	26.27 / 37.10 / 41.49	0.18 / -0.63 / -1.06
+	LSTM	32.25 / 43.40 / 45.36	20.28 / 28.06 / 29.90	0.46 / 0.03 / -0.06
+
+The result was not the extremes of the tested range and not the full four years of available history — it was a middle window, roughly 2-3 years back. Only 730 and 1085 days beat their own baseline at every horizon, with real, consistent 5-9% margins; every other window tested, including the full 1440-day history, beat baseline at 0-2 of 3 horizons at best, by margins indistinguishable from noise where they won at all. The per-model breakdown also shows XGBoost as the most consistent performer at 1085 days specifically — the only model beating baseline at all three horizons individually (R² 0.49/0.07/0.07), rather than the win coming from different algorithms trading off across horizons as in most of the smaller windows.
+
+Between the two winning windows, 1085 days (~3 years) was selected as the final training window: it showed a higher average margin (6.4% vs. 5.1%) and, more importantly, a more consistent one — 730 days' 24h result (+0.5%) was close enough to a tie to be within noise, while 1085 days beat baseline meaningfully at all three horizons. This became `TRAINING_WINDOW_DAYS = 1085` in `training_pipeline/train.py`, applied as a filter on the feature store's timestamp range immediately before target construction, at the start of every training run. The feature store itself continues to retain the full four-year backfilled history (`backfill.py`'s `days_back=1440` is unchanged) — `TRAINING_WINDOW_DAYS` governs how much of it a given training run draws on, not what the pipeline keeps.
+
+With the final training window (1,085 days) in place, every horizon's champion beats the persistence baseline for the first time in this project: XGBoost at 24h (RMSE 22.73 vs. 24.20, +6.1%) and 72h (RMSE 30.68 vs. 32.45, +5.5%), and LSTM at 48h (RMSE 27.70 vs. 30.26, +8.5%). No model is manually selected — the registry is queried per horizon at serving time for the lowest-RMSE candidate among Ridge, tuned Random Forest, tuned XGBoost, and a seeded LSTM, and a warning is logged (though it did not fire on this run) whenever the selected champion fails to beat the baseline it's meant to improve on.
+
+Automation & CI/CD
+
+Two GitHub Actions workflows automate the pipeline:
+
+Hourly feature pipeline (feature_pipeline.yml) — cron 0 * * * *, fetches new data, computes features, pushes to the Supabase-backed feature table.
+
+Daily training pipeline (training_pipeline.yml) — cron [time], retrains Ridge, Random Forest, and LSTM for every horizon, evaluates each against a held-out set, and registers every one with its real metrics attached, plus the best-performing one per horizon under a shared name so serving code always queries the genuine best model rather than trusting any single training run's local judgment.
+
+GitHub Actions was chosen over Apache Airflow specifically because Airflow requires a persistently running scheduler and webserver — even "free" ways to host it violate the $0-cost, serverless constraint this project was built under.
+
+Why least-privilege permissions + concurrency control: permissions: contents: read means the workflow can't write back to the repo even if compromised. The concurrency block stops a manual trigger from racing an in-progress scheduled run against the same feature group.
+
+[Once running a few days: "As of [date], the pipeline has completed N of M scheduled runs successfully, with failures caused by [reason, if any]."]

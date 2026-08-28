@@ -19,9 +19,9 @@ possible:
 
 """
 
-import json
 import logging
 import tempfile
+from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
 
@@ -120,9 +120,17 @@ def push_features(df: pd.DataFrame, table: str = FEATURES_TABLE) -> None:
     logger.info("Upserted %d row(s) into '%s'", len(records), table)
 
 
-def read_features(table: str = FEATURES_TABLE) -> pd.DataFrame:
-    """Read the full feature table back out -- used by run.py to compute
+def read_features(table: str = FEATURES_TABLE, since: datetime | None = None) -> pd.DataFrame:
+    """Read the feature table back out -- used by run.py to compute
     rolling/lag features, and by the training pipeline and dashboard.
+
+    since: optional lower bound on timestamp. Passed through as a
+    server-side .gte() filter -- callers that only need a recent window
+    (e.g. the dashboard's load_recent_data) get back just that window in
+    ONE paginated pass instead of downloading the entire table and
+    slicing it client-side afterward. Left as None (default) for callers
+    that genuinely need full history, like training_pipeline/train.py's
+    read_features() call before its own TRAINING_WINDOW_DAYS filter.
 
     Paginated: PostgREST caps a single response at its project-level
     max-rows setting (1000 by default), so a plain select("*") silently
@@ -137,9 +145,11 @@ def read_features(table: str = FEATURES_TABLE) -> pd.DataFrame:
 
     try:
         while True:
+            query = client.table(table).select("*")
+            if since is not None:
+                query = query.gte("timestamp", since.isoformat())
             response = (
-                client.table(table)
-                .select("*")
+                query
                 .order("timestamp")
                 .range(start, start + page_size - 1)
                 .execute()

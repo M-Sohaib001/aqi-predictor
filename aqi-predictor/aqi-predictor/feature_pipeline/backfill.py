@@ -322,7 +322,7 @@ if __name__ == "__main__":
     configure_logging()
     from feature_pipeline.supabase_client import push_features
 
-    backfilled = backfill(days_back=90)
+    backfilled = backfill(days_back=1440) # 4 complete seasonal cycles
 
     # Push in batches rather than one enormous insert -- friendlier to the
     # Supabase API and easier to see progress on a large backfill.

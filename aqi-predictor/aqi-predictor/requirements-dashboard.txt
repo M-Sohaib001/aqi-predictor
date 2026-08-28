@@ -1,0 +1,5 @@
+-r requirements-training.txt
+fastapi==0.140.0
+uvicorn[standard]==0.51.0
+streamlit==1.60.0
+shap==0.52.0
