@@ -1,9 +1,0 @@
-requests==2.32.3
-python-dotenv==1.0.1
-pandas==2.2.2
-numpy==2.5.2
-matplotlib==3.9.2
-supabase==2.31.0
-tenacity==8.5.0
-pydantic>=2.11.7,<3
-pydantic-settings==2.4.0
