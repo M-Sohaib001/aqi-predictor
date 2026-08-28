@@ -1,6 +1,6 @@
 -r requirements.txt
 pytest==8.3.2
-ruff==0.6.2
+ruff==0.16.4
 # scikit-learn/joblib are lightweight enough to include here so
 # tests/test_train.py can import train.py's pure functions (evaluate()
 # uses sklearn.metrics) without needing the full training environment.
