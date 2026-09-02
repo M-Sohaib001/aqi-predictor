@@ -3,3 +3,17 @@ fastapi==0.140.0
 uvicorn[standard]==0.51.0
 streamlit==1.60.0
 shap==0.52.0
+plotly==7.0.0
+
+sentence-transformers==3.3.1
+upstash-vector==0.6.0
+google-generativeai==0.8.3
+mcp==1.2.0
+python-telegram-bot==21.10
+evidently==0.4.40
+langfuse==2.57.1
+lightgbm==4.5.0
+langgraph==0.2.60
+langchain-core==0.3.28
+ragas==0.2.9
+maplibre==0.4.0

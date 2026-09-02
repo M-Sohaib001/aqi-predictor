@@ -52,24 +52,76 @@ def _get(url: str, timeout: int) -> requests.Response:
     return response
 
 
+def classify_aqicn_response(payload: dict) -> tuple[bool, dict | None, str | None]:
+    """Returns (is_success, station_data, error_message).
+
+    AQICN's error responses aren't always where you'd expect: a genuine
+    error (e.g. "Unknown ID") can come back as top-level status="ok" with
+    the real error nested one level down in `data`:
+        {"status": "ok", "data": {"status": "error", "msg": "Unknown ID"}}
+    confirmed directly against a real station. The previous version of
+    this function only checked `data.get("status") != "ok"` at the top
+    level -- which means a nested error like the one above was read as
+    success, and `data["data"]` (itself `{"status": "error", ...}`) would
+    get returned and written downstream as if it were a real reading.
+
+    Success therefore requires top-level status=="ok" AND `data` actually
+    looking like a station reading (has an "aqi" key), not just a
+    top-level "ok". Shared with vet_stations.py so there's one place that
+    knows how to read an AQICN response.
+    """
+    top_status = payload.get("status")
+    data = payload.get("data")
+
+    if isinstance(data, dict) and data.get("status") == "error":
+        return False, None, str(data.get("msg", "unknown error"))
+
+    if top_status == "ok" and isinstance(data, dict) and "aqi" in data:
+        return True, data, None
+
+    if top_status == "error":
+        return False, None, str(data)
+
+    return False, None, f"unrecognized response shape: {payload!r}"
+
+
 def fetch_aqicn_data(station: str | None = None) -> dict:
+    """Fetch a single AQICN station's current reading.
+
+    If `station` is given explicitly, only that station is tried (for
+    callers/tests that want one specific station, no fallback). Otherwise
+    this walks the configured chain -- settings.aqicn_station first, then
+    each entry in settings.aqicn_fallback_stations in order -- moving to
+    the next candidate only when a station is genuinely unreachable or
+    returns an error, never merely because a reading looks stale (staleness
+    is a feature-pipeline concern, not a fetch concern).
+
+    Raises DataFetchError only if every candidate in the chain fails.
+    """
     settings = get_settings()
-    station = station or settings.aqicn_station
-    url = f"https://api.waqi.info/feed/{station}/?token={settings.aqicn_token}"
+    candidates = [station] if station else [settings.aqicn_station, *settings.aqicn_fallback_stations]
 
-    try:
-        response = _get(url, timeout=settings.request_timeout_seconds)
-    except (requests.RequestException, _RetryableHTTPError) as exc:
-        raise DataFetchError(f"AQICN request failed: {exc}") from exc
+    last_error: DataFetchError | None = None
+    for candidate in candidates:
+        url = f"https://api.waqi.info/feed/{candidate}/?token={settings.aqicn_token}"
+        try:
+            response = _get(url, timeout=settings.request_timeout_seconds)
+        except (requests.RequestException, _RetryableHTTPError) as exc:
+            last_error = DataFetchError(f"AQICN request to {candidate} failed: {exc}")
+            continue
 
-    data = response.json()
-    if data.get("status") != "ok":
-        # Deliberately don't log the full `data` payload -- AQICN error
-        # responses can echo request parameters back, and logging the raw
-        # body is an easy way to accidentally leak the token into CI logs.
-        raise DataFetchError(f"AQICN API returned status={data.get('status')!r}")
+        ok, data, err = classify_aqicn_response(response.json())
+        if ok:
+            if candidate != candidates[0]:
+                logger.warning("Primary AQICN station unreachable; used fallback %s", candidate)
+            return data
 
-    return data["data"]
+        # Deliberately don't log the full payload -- AQICN error responses
+        # can echo request parameters back, and logging the raw body is an
+        # easy way to accidentally leak the token into CI logs.
+        last_error = DataFetchError(f"AQICN station {candidate} returned: {err}")
+
+    raise last_error or DataFetchError("No AQICN stations configured")
 
 
 def fetch_openweather_current(lat: float | None = None, lon: float | None = None) -> dict:
