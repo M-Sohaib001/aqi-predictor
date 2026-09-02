@@ -196,7 +196,8 @@ def main() -> None:
     # Freshest + internally-consistent first, so the top of the table is
     # your primary + fallback-chain candidates in priority order.
     working.sort(
-        key=lambda r: ((r.consistent is False), r.age_hours if r.age_hours is not None else float("inf"))
+        key=lambda r: ((r.consistent is False),
+                       r.age_hours if r.age_hours is not None else float("inf"))
     )
 
     print("\nWorking stations (best candidates first):")
