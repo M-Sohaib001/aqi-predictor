@@ -10,7 +10,7 @@ import requests
 TOKEN = "07276f01747ee257d146e319fa6faff0460e46b3"
 UID = 401143
 
-url=f"https://aqicn.org/station/@401143/"
+url="https://aqicn.org/station/@401143/"
 #url = f"https://api.waqi.info/feed/@{UID}/?token={TOKEN}"
 print(f"Requesting: {url.replace(TOKEN, '<token>')}")
 print()

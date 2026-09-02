@@ -99,7 +99,11 @@ def fetch_aqicn_data(station: str | None = None) -> dict:
     Raises DataFetchError only if every candidate in the chain fails.
     """
     settings = get_settings()
-    candidates = [station] if station else [settings.aqicn_station, *settings.aqicn_fallback_stations]
+    candidates = (
+        [station]
+        if station
+        else [settings.aqicn_station, *settings.aqicn_fallback_stations]
+)
 
     last_error: DataFetchError | None = None
     for candidate in candidates:

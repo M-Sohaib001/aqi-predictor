@@ -31,7 +31,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import requests
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
@@ -106,8 +106,8 @@ def _parse_reading(uid: int, prefix: str, data: dict) -> StationResult:
     time_block = data.get("time") or {}
     epoch = time_block.get("v")
     if epoch:
-        reading_dt = datetime.fromtimestamp(epoch, tz=timezone.utc)
-        age = datetime.now(tz=timezone.utc) - reading_dt
+        reading_dt = datetime.fromtimestamp(epoch, tz=UTC)
+        age = datetime.now(tz=UTC) - reading_dt
         result.age_hours = round(age.total_seconds() / 3600, 1)
     else:
         result.notes.append("no timestamp in response")
@@ -122,7 +122,7 @@ def _parse_reading(uid: int, prefix: str, data: dict) -> StationResult:
     sub_values = [
         entry["v"]
         for entry in iaqi.values()
-        if isinstance(entry, dict) and isinstance(entry.get("v"), (int, float))
+        if isinstance(entry, dict) and isinstance(entry.get("v"), int | float)
     ]
 
     if sub_values:

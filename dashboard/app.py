@@ -54,17 +54,25 @@ DEFAULT_COLOR = "#6B7280"  # neutral gray fallback if category text is unrecogni
 # without hiding it (the raw name still shows as a caption).
 FEATURE_LABELS: dict[str, tuple[str, str]] = {
     "aqi": ("Current AQI", "The most recent measured air quality reading."),
-    "pm25": ("Fine particles (PM2.5)", "Tiny airborne particles small enough to reach deep into the lungs -- usually the biggest driver of AQI."),
-    "pm10": ("Coarse particles (PM10)", "Larger airborne particles, e.g. dust and pollen."),
+    "pm25": ("Fine particles (PM2.5)",
+             "Tiny airborne particles small enough to reach deep into the lungs",
+              " -- usually the biggest driver of AQI."),
+    "pm10": ("Coarse particles (PM10)",
+             "Larger airborne particles, e.g. dust and pollen."),
     "o3": ("Ozone (O₃)", "Ground-level ozone, often higher on hot, sunny days."),
     "no2": ("Nitrogen dioxide (NO₂)", "A gas mainly from vehicle and industrial emissions."),
     "temperature": ("Temperature", "Current air temperature."),
     "humidity": ("Humidity", "How much moisture is in the air."),
     "wind_speed": ("Wind speed", "Faster wind generally disperses pollution."),
-    "pressure": ("Air pressure", "Low pressure can trap pollution near the ground; high pressure (e.g. winter smog) can too."),
-    "aqi_lag_1h": ("AQI 1 hour ago", "What the AQI reading was one hour before now."),
-    "aqi_lag_24h": ("AQI 24 hours ago", "What the AQI reading was the same time yesterday."),
-    "aqi_rolling_mean_3h": ("3-hour average AQI", "The average AQI over the last 3 hours, smoothing out short spikes."),
+    "pressure": ("Air pressure",
+                 "Low pressure can trap pollution near the ground; high pressure",
+                 " (e.g. winter smog) can too."),
+    "aqi_lag_1h": ("AQI 1 hour ago",
+                   "What the AQI reading was one hour before now."),
+    "aqi_lag_24h": ("AQI 24 hours ago",
+                    "What the AQI reading was the same time yesterday."),
+    "aqi_rolling_mean_3h": ("3-hour average AQI",
+                            "The average AQI over the last 3 hours, smoothing out short spikes."),
     "aqi_rolling_mean_24h": ("24-hour average AQI", "The average AQI over the last full day."),
     "aqi_change_rate": ("Recent AQI trend", "How quickly AQI has been rising or falling."),
     "hour_sin": ("Time of day", "Captures typical patterns at this hour."),
@@ -84,12 +92,20 @@ def friendly_feature_label(raw_name: str) -> str:
 # Plain-language guidance per EPA category -- shown under the live AQI
 # card so "Unhealthy" means something concrete, not just a colored badge.
 CATEGORY_GUIDANCE = [
-    ("hazardous", "Health warning of emergency conditions. Everyone should avoid outdoor activity."),
-    ("very unhealthy", "Health alert. Everyone may experience serious effects -- avoid outdoor exertion."),
-    ("unhealthy for sensitive", "Sensitive groups (children, elderly, those with respiratory issues) should limit outdoor exertion."),
-    ("unhealthy", "Everyone may begin to experience health effects; sensitive groups more seriously."),
-    ("moderate", "Air quality is acceptable, though there may be a risk for unusually sensitive people."),
-    ("good", "Air quality is satisfactory, and air pollution poses little or no risk."),
+    ("hazardous",
+     "Health warning of emergency conditions. Everyone should avoid outdoor activity."),
+    ("very unhealthy",
+     "Health alert. Everyone may experience serious effects -- avoid outdoor exertion."),
+    ("unhealthy for sensitive",
+     "Sensitive groups (children, elderly, those with respiratory issues)",
+     " should limit outdoor exertion."),
+    ("unhealthy",
+     "Everyone may begin to experience health effects;",
+     "sensitive groups more seriously."),
+    ("moderate",
+     "Air quality is acceptable, though there may be a risk for unusually sensitive people."),
+    ("good",
+     "Air quality is satisfactory, and air pollution poses little or no risk."),
 ]
 
 
@@ -282,7 +298,10 @@ if current:
     guidance = guidance_for_category(current.get("category"))
     hero_inner = f"""
         <div class="aqi-card-label">Current AQI (live)</div>
-        <div class="aqi-card-value" style="font-size:4rem; color:{color};">{current['aqi']:.0f}</div>
+        <div
+            class="aqi-card-value"
+            style="font-size:4rem; color:{color};"
+        >{current['aqi']:.0f}</div>
         <div class="aqi-badge" style="background:{color};">{current.get('category', '')}</div>
         <div class="aqi-card-sub">As of {current['timestamp']}</div>
         <div class="aqi-card-sub" style="margin-top:0.75rem; max-width: 480px;">{guidance}</div>
@@ -293,13 +312,25 @@ else:
         '<div class="aqi-unavailable">Live AQI is still warming up -- '
         "check back shortly once more recent data has accumulated.</div>"
     )
-st.markdown(f'<div class="aqi-card" style="margin-bottom: 1.5rem;">{hero_inner}</div>', unsafe_allow_html=True)
+st.markdown(
+    f'<div class="aqi-card" style="margin-bottom: 1.5rem;">'
+    f"{hero_inner}</div>",
+    unsafe_allow_html=True,
+)
 
-st.markdown('<div class="aqi-section-title" style="margin-top:0;">3-day forecast</div>', unsafe_allow_html=True)
+st.markdown(
+    '<div class="aqi-section-title" style="margin-top:0;">'
+    "3-day forecast</div>",
+    unsafe_allow_html=True,
+)
 
 col_24, col_48, col_72 = st.columns(3)
 
-for col, label, key in [(col_24, "24h forecast", "24h"), (col_48, "48h forecast", "48h"), (col_72, "72h forecast", "72h")]:
+for col, label, key in [
+    (col_24, "24h forecast", "24h"),
+    (col_48, "48h forecast", "48h"),
+    (col_72, "72h forecast", "72h"),
+]:
     with col:
         if forecast:
             delta = forecast["forecast"][key] - forecast["current_aqi"]
@@ -324,7 +355,11 @@ if forecast:
 else:
     render_unavailable("The 3-day forecast chart")
 
-st.markdown('<div class="aqi-section-title">Why this forecast? (SHAP explanation)</div>', unsafe_allow_html=True)
+st.markdown(
+    '<div class="aqi-section-title">'
+    "Why this forecast? (SHAP explanation)</div>",
+    unsafe_allow_html=True,
+)
 horizon_choice = st.selectbox("Horizon", [24, 48, 72], format_func=lambda h: f"{h}h")
 explanation = api_get(f"/explain/{horizon_choice}")
 if explanation:
