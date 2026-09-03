@@ -14,14 +14,16 @@ the hourly feature_pipeline/run.py -- this script only fills in the past,
 using a different (but real) source. State this explicitly in the report;
 it's a genuine, worth-naming limitation, not something to hide.
 
-A second, easier-to-miss issue: OpenWeather's raw PM2.5 concentration
-(ug/m3) is NOT the same scale as AQI. An earlier version of this script
-wrote that raw concentration directly into the `aqi` column, which would
-have silently mixed two incompatible scales depending on whether a row
-came from AQICN (live) or OpenWeather (backfilled) -- a real data
-integrity defect, not just a documented limitation. pm25_to_aqi() below
-converts using EPA's official breakpoints so both sources land on one
-honest, comparable scale.
+A second, easier-to-miss issue: OpenWeather's raw pollutant concentrations
+(ug/m3) are NOT the same scale as an AQI sub-index. An earlier version of
+this script converted pm25 into the `aqi` column via pm25_to_aqi(), but
+left pm25/pm10/o3/no2 themselves as raw concentrations -- which would
+have silently mixed two incompatible scales in those columns depending on
+whether a row came from AQICN (live, already a sub-index) or OpenWeather
+(backfilled, raw). pm25_to_aqi()/pm10_to_aqi()/o3_to_aqi()/no2_to_aqi()
+(compute_features.py -- shared with run.py's live fallback, so there's
+one place that knows how to do this conversion) put every pollutant
+column on the same, real AQI sub-index scale regardless of source.
 
 A third issue, relevant specifically when re-running this script after
 some live data already exists: backfill() always covers "the last N days
@@ -46,59 +48,16 @@ from feature_pipeline.compute_features import (
     add_cyclical_time_features,
     add_derived_features,
     handle_outliers,
+    no2_to_aqi,
+    o3_to_aqi,
+    pm10_to_aqi,
+    pm25_to_aqi,
 )
 from feature_pipeline.config import get_settings
 from feature_pipeline.exceptions import AQIPipelineError, DataFetchError
 from feature_pipeline.logging_config import configure_logging
 
 logger = logging.getLogger(__name__)
-
-# US EPA breakpoints for converting a PM2.5 concentration (ug/m3) into the
-# standard 0-500 AQI scale. (bp_low, bp_high, aqi_low, aqi_high) per band.
-# Source: EPA technical assistance document for the AQI (40 CFR Part 58,
-# Appendix G) -- these are the official published breakpoints, not an
-# approximation.
-_PM25_AQI_BREAKPOINTS = [
-    (0.0, 12.0, 0, 50),
-    (12.1, 35.4, 51, 100),
-    (35.5, 55.4, 101, 150),
-    (55.5, 150.4, 151, 200),
-    (150.5, 250.4, 201, 300),
-    (250.5, 350.4, 301, 400),
-    (350.5, 500.4, 401, 500),
-]
-
-
-def pm25_to_aqi(pm25: float | None) -> float | None:
-    """
-    Convert a PM2.5 concentration into a real US AQI value using EPA's
-    published linear-interpolation breakpoints.
-
-    Why this function exists at all: an earlier version of this script
-    wrote OpenWeather's raw PM2.5 concentration (ug/m3) directly into the
-    `aqi` column, on the assumption it was "close enough" to an AQI value.
-    It is not -- PM2.5 concentration and AQI are different scales
-    entirely (e.g. a PM2.5 of 100 ug/m3 is a real AQI of roughly 174, not
-    100). Silently blending that raw concentration into the same `aqi`
-    column that live AQICN data populates would have meant the model's
-    training target was inconsistent depending on which source produced
-    each row -- a real data-integrity defect, not just an approximation.
-    This function makes both sources land on the same, real AQI scale.
-
-    Note this still uses a single hourly reading rather than the 24-hour
-    rolling average EPA's official AQI technically specifies -- state
-    this simplification explicitly in the report rather than presenting
-    the backfilled AQI as identical in methodology to AQICN's live value.
-    """
-    if pm25 is None or pm25 < 0:
-        return None
-    if pm25 > 500.4:
-        return 500.0
-
-    for bp_lo, bp_hi, aqi_lo, aqi_hi in _PM25_AQI_BREAKPOINTS:
-        if bp_lo <= pm25 <= bp_hi:
-            return round((aqi_hi - aqi_lo) / (bp_hi - bp_lo) * (pm25 - bp_lo) + aqi_lo, 1)
-    return None
 
 
 def fetch_openweather_pollution_history(start: datetime, end: datetime) -> list[dict]:
@@ -182,9 +141,10 @@ def _openweather_entry_to_row(entry: dict) -> dict:
     build_feature_row() produces from AQICN, so the rest of the pipeline
     doesn't need to know which source a row came from.
 
-    The `aqi` field is computed via pm25_to_aqi(), landing on the same
-    real AQI scale AQICN's live data uses -- not OpenWeather's raw PM2.5
-    concentration, and not OpenWeather's own separate 1-5 index either.
+    Every pollutant here -- aqi, pm25, pm10, o3, no2 -- is converted via
+    compute_features.py's *_to_aqi() functions, landing on the same real
+    AQI sub-index scale AQICN's live iaqi values use. None of OpenWeather's
+    raw concentrations are written directly into these columns.
 
     Weather fields default to None here -- OpenWeather's pollution
     history endpoint doesn't include them. backfill() fills them in
@@ -193,16 +153,16 @@ def _openweather_entry_to_row(entry: dict) -> dict:
     dt = datetime.fromtimestamp(entry["dt"], tz=UTC)
     event_time = dt.replace(minute=0, second=0, microsecond=0)
     components = entry.get("components", {})
-    pm25 = _safe_float(components.get("pm2_5"))
+    pm25_raw = _safe_float(components.get("pm2_5"))
 
     return {
         "timestamp": event_time.isoformat(),
         "collected_at": dt.isoformat(),
-        "aqi": pm25_to_aqi(pm25),
-        "pm25": pm25,
-        "pm10": _safe_float(components.get("pm10")),
-        "o3": _safe_float(components.get("o3")),
-        "no2": _safe_float(components.get("no2")),
+        "aqi": pm25_to_aqi(pm25_raw),
+        "pm25": pm25_to_aqi(pm25_raw),
+        "pm10": pm10_to_aqi(_safe_float(components.get("pm10"))),
+        "o3": o3_to_aqi(_safe_float(components.get("o3"))),
+        "no2": no2_to_aqi(_safe_float(components.get("no2"))),
         "temperature": None,
         "humidity": None,
         "wind_speed": None,
@@ -322,7 +282,7 @@ if __name__ == "__main__":
     configure_logging()
     from feature_pipeline.supabase_client import push_features
 
-    backfilled = backfill(days_back=1440) # 4 complete seasonal cycles
+    backfilled = backfill(days_back=1440)  # 4 complete seasonal cycles
 
     # Push in batches rather than one enormous insert -- friendlier to the
     # Supabase API and easier to see progress on a large backfill.

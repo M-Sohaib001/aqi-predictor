@@ -14,8 +14,12 @@ from feature_pipeline.compute_features import (
     build_feature_row,
     handle_outliers,
 )
-from feature_pipeline.exceptions import AQIPipelineError
-from feature_pipeline.fetch_data import fetch_aqicn_data, fetch_openweather_current
+from feature_pipeline.exceptions import AQIPipelineError, DataFetchError
+from feature_pipeline.fetch_data import (
+    fetch_aqicn_data,
+    fetch_openweather_current,
+    fetch_openweather_pollution,
+)
 from feature_pipeline.logging_config import configure_logging
 from feature_pipeline.supabase_client import push_features, read_features
 
@@ -26,7 +30,22 @@ def main() -> None:
     aqicn_data = fetch_aqicn_data()
     weather_data = fetch_openweather_current()
 
-    new_row = build_feature_row(aqicn_data, weather_data)
+    # Optional enhancement, not a hard requirement -- same reasoning
+    # backfill.py already applies to its Open-Meteo weather fetch: a
+    # transient failure here shouldn't fail the whole hourly run.
+    # AQICN's own sub-indices are always used first regardless; this only
+    # ever fills in whichever pollutant AQICN's station doesn't report at
+    # all (e.g. a PM-only community sensor with no O3/NO2 hardware).
+    try:
+        pollution_data = fetch_openweather_pollution()
+    except DataFetchError as exc:
+        logger.warning(
+            "OpenWeather pollution fetch failed (%s) -- continuing without "
+            "the pollutant fallback for this run.", exc,
+        )
+        pollution_data = None
+
+    new_row = build_feature_row(aqicn_data, weather_data, pollution_fallback=pollution_data)
     new_df = pd.DataFrame([new_row])
     new_df = handle_outliers(new_df)
     new_df = add_cyclical_time_features(new_df)
