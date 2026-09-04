@@ -95,15 +95,21 @@ def push_features(df: pd.DataFrame, table: str = FEATURES_TABLE) -> None:
     for col in NUMERIC_COLUMNS:
         df[col] = df[col].astype("float64")
 
-    # By the time this is called, `timestamp`/`collected_at` are real
-    # pandas datetimes (add_cyclical_time_features converts the ISO
-    # string compute_features.py originally produced) -- which aren't
-    # JSON-serializable as-is. Convert to ISO-8601 strings; PostgREST
-    # casts a valid ISO string straight into the column's real
-    # timestamptz type, so no further coercion is needed on the way in.
+    # By the time this is called, `timestamp`/`collected_at` are usually
+    # already real pandas datetimes (add_cyclical_time_features converts
+    # the ISO string compute_features.py originally produced) -- but a
+    # caller that read existing rows back out of Supabase and is pushing
+    # them again (e.g. a migration/patch script) will have `collected_at`
+    # as a raw string instead, and Postgres trims trailing zeros from its
+    # fractional seconds inconsistently across rows. format="mixed" infers
+    # each value's format individually rather than assuming one fixed
+    # format for the whole column -- confirmed necessary in practice, not
+    # just a defensive guess (a real batch crashed without it). Safe to
+    # apply even when the column is already real datetimes; pandas treats
+    # that as a no-op.
     for col in ("timestamp", "collected_at"):
         if col in df.columns:
-            df[col] = pd.to_datetime(df[col]).apply(
+            df[col] = pd.to_datetime(df[col], format="mixed").apply(
                 lambda t: t.isoformat() if pd.notna(t) else None
             )
 
@@ -164,7 +170,14 @@ def read_features(table: str = FEATURES_TABLE, since: datetime | None = None) ->
 
     df = pd.DataFrame(all_rows)
     if not df.empty:
-        df["timestamp"] = pd.to_datetime(df["timestamp"])
+        # format="mixed": Postgres trims trailing zeros from fractional
+        # seconds inconsistently across rows, which breaks pandas' fast
+        # single-format parser once enough rows are read at once (seen in
+        # practice on `collected_at`, not just a hypothetical) --
+        # `timestamp` is hour-truncated so it never has fractional
+        # seconds to begin with, but parsed the same way for consistency.
+        df["timestamp"] = pd.to_datetime(df["timestamp"], format="mixed")
+        df["collected_at"] = pd.to_datetime(df["collected_at"], format="mixed")
     return df
 
 
